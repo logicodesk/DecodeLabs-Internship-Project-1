@@ -1,0 +1,50 @@
+# ──────────────────────────────────────────────────────────────────
+# requirements.txt — Python dependencies
+# ──────────────────────────────────────────────────────────────────
+# Using flexible versions so pip picks pre-built wheels that are
+# compatible with your Python version (including Python 3.14+).
+# ──────────────────────────────────────────────────────────────────
+
+# Web framework
+fastapi
+
+# ASGI server
+uvicorn[standard]
+
+# HTML template rendering
+jinja2
+
+# Static files support
+aiofiles
+
+# OpenAI official Python SDK
+openai
+
+# dotenv - loads .env file
+python-dotenv
+
+# Pydantic - data validation (FastAPI depends on this)
+pydantic
+
+# HTTP client
+httpx
+
+# Database and ORM
+sqlalchemy
+
+# Authentication
+PyJWT
+passlib[bcrypt]
+bcrypt
+
+# Forms and file uploads
+python-multipart
+
+# RAG and document processing
+numpy
+PyPDF2
+faiss-cpu
+sentence-transformers
+
+# Optional web search tool
+duckduckgo-search

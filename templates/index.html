@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- SEO -->
+  <title>AI Chatbot — Powered by OpenAI</title>
+  <meta name="description" content="A conversational AI chatbot with session memory powered by OpenAI GPT. Chat naturally and the AI remembers the entire conversation." />
+  <meta name="theme-color" content="#8b5cf6" />
+
+  <!-- Favicon -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>" />
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="/static/style.css" />
+
+  <!-- Markdown support via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
+
+  <script>
+    window.SESSION_ID = "{{ session_id }}";
+  </script>
+</head>
+
+<body>
+  <!-- Auth Modal -->
+  <div id="authModal" class="modal-overlay active" role="dialog">
+    <div class="modal-card">
+      <h3 id="authTitle">Welcome to AI Chatbot</h3>
+      <p id="authDesc">Please log in or register to continue.</p>
+      
+      <div id="authError" style="color: #ef4444; font-size: 13px; margin-bottom: 10px; display: none;"></div>
+      
+      <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+        <input type="text" id="authUsername" placeholder="Username" style="padding: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: rgba(255,255,255,0.05); color: white;">
+        <input type="password" id="authPassword" placeholder="Password" style="padding: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: rgba(255,255,255,0.05); color: white;">
+      </div>
+
+      <div class="modal-actions" style="flex-direction: column; gap: 10px;">
+        <button id="loginBtn" class="btn" style="background: var(--accent-purple); color: white;">Log In</button>
+        <button id="registerBtn" class="btn btn-ghost">Create Account</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-wrapper" style="max-width: 1100px; display: flex; flex-direction: row; gap: 16px;">
+
+    <!-- ── SIDEBAR ───────────────────────────────────────────── -->
+    <aside class="sidebar" style="width: 250px; background: var(--bg-card); border-radius: var(--radius-xl); border: 1px solid var(--border-subtle); display: flex; flex-direction: column; overflow: hidden;">
+      <div style="padding: 20px; border-bottom: 1px solid var(--border-subtle);">
+        <h3 style="font-size: 16px;">Chat History</h3>
+        <p id="loggedInUser" style="font-size: 12px; color: var(--text-muted);">Not logged in</p>
+      </div>
+      <div id="sessionList" style="flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 4px;">
+        <!-- Session items injected here -->
+      </div>
+      <div style="padding: 10px; border-top: 1px solid var(--border-subtle);">
+        <button id="logoutBtn" class="btn btn-ghost" style="width: 100%; text-align: center; padding: 8px;">Logout</button>
+      </div>
+    </aside>
+
+    <!-- ── MAIN CHAT AREA ────────────────────────────────────── -->
+    <main style="flex: 1; display: flex; flex-direction: column; height: 100vh;">
+      <!-- ── HEADER ────────────────────────────────────────────── -->
+      <header class="app-header" role="banner">
+        <div class="header-brand">
+          <div class="brand-icon" aria-hidden="true">🤖</div>
+          <div class="brand-text">
+            <h1>AI Chatbot</h1>
+            <p>Powered by OpenAI &bull; Session Memory Enabled</p>
+          </div>
+        </div>
+
+        <div class="header-controls">
+          <!-- Persona Dropdown -->
+          <select id="personaSelect" class="persona-select" title="Choose AI Persona">
+            <option value="You are a helpful, friendly, and knowledgeable AI assistant. You have a warm personality and you are always polite. You remember everything that has been said in this conversation. If you don't know something, say so honestly rather than guessing. Keep your responses clear and concise unless the user asks for detail.">Helpful Assistant</option>
+            <option value="You are a sarcastic and cynical programmer. You always provide correct code but you begrudgingly explain it, often making jokes about how obvious the solution is.">Sarcastic Programmer</option>
+            <option value="You are a pirate captain. You always speak like a pirate, using words like 'matey', 'arrr', and 'shiver me timbers'. You are bold and adventurous.">Pirate Captain</option>
+            <option value="You are Yoda from Star Wars. You always speak in the syntax of Yoda, reversing sentence structures where possible. You are wise and calm.">Master Yoda</option>
+          </select>
+        </div>
+
+        <!-- Action buttons -->
+        <div class="header-actions">
+          <button id="downloadChatBtn" class="btn-icon" title="Download Chat History" aria-label="Download chat">💾</button>
+          <button id="newChatBtn" class="btn-icon" title="Start a new conversation" aria-label="Start new chat">🗑️</button>
+        </div>
+      </header>
+
+      <!-- ── CHAT WINDOW ────────────────────────────────────────── -->
+      <section id="chatWindow" class="chat-window" role="log" aria-live="polite" aria-label="Chat conversation">
+
+      </section>
+
+      <!-- ── INPUT AREA ─────────────────────────────────────────── -->
+      <footer class="input-area" role="contentinfo">
+        <!-- Upload Status Bar (hidden by default) -->
+        <div id="uploadStatus" class="upload-status" style="display: none;">
+          <div class="upload-status-inner">
+            <span class="upload-spinner"></span>
+            <span id="uploadFileName" class="upload-file-name">Uploading file...</span>
+            <div class="upload-progress-bar"><div id="uploadProgressFill" class="upload-progress-fill"></div></div>
+          </div>
+        </div>
+
+        <!-- Uploaded File Badge (shown after successful upload) -->
+        <div id="uploadBadge" class="upload-badge" style="display: none;">
+          <span class="upload-badge-icon">📄</span>
+          <span id="uploadBadgeName" class="upload-badge-name"></span>
+          <button id="removeUploadBtn" class="upload-badge-remove" title="Remove file">✕</button>
+        </div>
+
+        <div class="input-container">
+          <!-- Hidden File Input -->
+          <input type="file" id="fileInput" accept=".pdf,.txt,.md,.csv" style="display: none;" />
+
+          <!-- Attach File Button -->
+          <button id="attachBtn" class="btn-icon attach-btn" title="Attach a file (PDF, TXT)" aria-label="Attach file">📎</button>
+
+          <!-- Voice Input Button -->
+          <button id="voiceBtn" class="btn-icon voice-btn" title="Speak message" aria-label="Voice input">🎙️</button>
+
+          <textarea
+            id="messageInput"
+            placeholder="Type a message… (Enter to send, Shift+Enter for new line)"
+            rows="1"
+            maxlength="2000"
+            aria-label="Message input"
+            autocomplete="off"
+            spellcheck="true"
+          ></textarea>
+
+          <button id="sendBtn" class="send-btn" title="Send message (Enter)" aria-label="Send message">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="input-footer">
+          <span class="input-hint">Shift + Enter for new line • 📎 to attach files</span>
+          <span class="char-count" id="charCount" aria-live="polite">0 / 2000</span>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       CLEAR CHAT CONFIRMATION MODAL
+       ══════════════════════════════════════════════════════════ -->
+  <div id="modalOverlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalDesc">
+    <div class="modal-card">
+      <h3 id="modalTitle">Start a New Chat?</h3>
+      <p id="modalDesc">This will clear your current conversation history. This action cannot be undone.</p>
+      <div class="modal-actions">
+        <button id="modalCancel" class="btn btn-ghost" aria-label="Cancel">Cancel</button>
+        <button id="modalConfirm" class="btn btn-danger" aria-label="Clear conversation">Clear Chat</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>

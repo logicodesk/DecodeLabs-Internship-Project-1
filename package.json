@@ -1,0 +1,8 @@
+{
+  "name": "ai-chatbot-decolabs",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "venv\\Scripts\\python.exe -m uvicorn app:app --reload --host 0.0.0.0 --port 8000"
+  }
+}
