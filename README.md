@@ -84,7 +84,7 @@ uvicorn app:app --reload
 
 ### Step 6 — Open the chatbot
 
-Open your browser and go to: **[http://localhost:8000](http://localhost:8000)**
+Open your browser and go to: **[http://localhost:8001](http://localhost:8001)**
 
 ---
 
@@ -152,7 +152,7 @@ Edit `.env` to change behaviour:
 OPENAI_API_KEY=sk-proj-...      # Required
 OPENAI_MODEL=gpt-4o-mini        # Model to use
 HOST=127.0.0.1                  # Server host
-PORT=8000                       # Server port
+PORT=8001                       # Server port
 ```
 
 **Available models:**
