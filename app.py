@@ -34,17 +34,7 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
-
 # ── Pydantic Schemas ──────────────────────────────────────────────
-
-class UserCreate(BaseModel):
-    username: str
-    password: str
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
 
 class ChatRequest(BaseModel):
     message: str
@@ -54,20 +44,6 @@ class ChatRequest(BaseModel):
 class ClearRequest(BaseModel):
     session_id: str
 
-
-# ── Auth Dependencies ─────────────────────────────────────────────
-
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    payload = auth.decode_access_token(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    username: str = payload.get("sub")
-    if username is None:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    user = db.query(models.User).filter(models.User.username == username).first()
-    if user is None:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
 
 
 # ── Routes ────────────────────────────────────────────────────────
@@ -81,50 +57,16 @@ async def index(request: Request):
         context={"session_id": str(uuid.uuid4())},
     )
 
-@app.post("/register")
-def register(user: UserCreate, db: Session = Depends(get_db)):
-    db_user = db.query(models.User).filter(models.User.username == user.username).first()
-    if db_user:
-        raise HTTPException(status_code=400, detail="Username already registered")
-    
-    hashed_pwd = auth.get_password_hash(user.password)
-    new_user = models.User(username=user.username, hashed_password=hashed_pwd)
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return {"message": "User registered successfully"}
-
-@app.post("/login", response_model=Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.username == form_data.username).first()
-    if not user or not auth.verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Incorrect username or password")
-    
-    access_token = auth.create_access_token(data={"sub": user.username})
-    return {"access_token": access_token, "token_type": "bearer"}
-
-@app.get("/me")
-def read_users_me(current_user: models.User = Depends(get_current_user)):
-    return {"username": current_user.username}
-
-@app.get("/sessions")
-def get_user_sessions(current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Fetch all past chat sessions for the logged-in user."""
-    sessions = db.query(models.ChatSession).filter(models.ChatSession.user_id == current_user.id).order_by(models.ChatSession.created_at.desc()).all()
-    return [{"id": s.id, "title": s.title, "created_at": s.created_at} for s in sessions]
 
 @app.post("/chat")
-async def chat_endpoint(body: ChatRequest, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
-    """Receive a user message and return the AI reply as a stream (SSE). Auth required."""
-    # Authenticate user
-    user = get_current_user(token, db)
-    
+async def chat_endpoint(body: ChatRequest, db: Session = Depends(get_db)):
+    """Receive a user message and return the AI reply as a stream (SSE)."""
     session_id = body.session_id or str(uuid.uuid4())
 
-    # Ensure session is assigned to the current user
+    # Ensure session exists
     session = db.query(models.ChatSession).filter(models.ChatSession.id == session_id).first()
     if not session:
-        session = models.ChatSession(id=session_id, user_id=user.id, title=body.message[:30] + "...")
+        session = models.ChatSession(id=session_id, user_id=None, title=body.message[:30] + "...")
         db.add(session)
         db.commit()
 
@@ -140,16 +82,15 @@ async def chat_endpoint(body: ChatRequest, db: Session = Depends(get_db), token:
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 @app.post("/clear")
-async def clear_session(body: ClearRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+async def clear_session(body: ClearRequest, db: Session = Depends(get_db)):
     """Clear conversation history for a session."""
     chatbot.clear_session_db(db, body.session_id)
     return {"message": "Conversation cleared.", "session_id": body.session_id}
 
 @app.get("/history/{session_id}")
-async def get_history(session_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def get_history(session_id: str, db: Session = Depends(get_db)):
     """Return the raw conversation history for a session."""
-    # Ensure session belongs to user
-    session = db.query(models.ChatSession).filter(models.ChatSession.id == session_id, models.ChatSession.user_id == current_user.id).first()
+    session = db.query(models.ChatSession).filter(models.ChatSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
         
@@ -160,14 +101,13 @@ async def get_history(session_id: str, current_user: models.User = Depends(get_c
 async def upload_file(
     file: UploadFile = File(...),
     session_id: str = Form(...),
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
     """Upload a file and index it for RAG."""
     # Ensure session exists
     session = db.query(models.ChatSession).filter(models.ChatSession.id == session_id).first()
     if not session:
-        session = models.ChatSession(id=session_id, user_id=current_user.id, title=f"Doc: {file.filename}")
+        session = models.ChatSession(id=session_id, user_id=None, title=f"Doc: {file.filename}")
         db.add(session)
         db.commit()
 

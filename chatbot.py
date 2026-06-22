@@ -137,64 +137,28 @@ def chat_stream(session_id: str, user_message: str, persona: str = None):
         try:
             client = create_client()
             
-            # Step 1: Call model with tools
+            # Call model directly with streaming
             response = client.chat.completions.create(
                 model=os.getenv("OPENAI_MODEL", "grok-3-mini"),
                 messages=history,
                 temperature=0.7,
                 max_tokens=2048,
                 timeout=30.0,
-                tools=tools,
-                tool_choice="auto",
-                stream=False, # We don't stream the first pass because it might be a tool call
+                stream=True,
             )
-
-            message = response.choices[0].message
             
-            # Step 2: Handle Tool Calls (Web Search)
-            if message.tool_calls:
-                history.append(message.model_dump(exclude_unset=True))
-                for tool_call in message.tool_calls:
-                    if tool_call.function.name == "search_web":
-                        args = json.loads(tool_call.function.arguments)
-                        query = args.get("query")
-                        yield f"*Searching the web for: '{query}'...*\n\n"
-                        search_result = search_web(query)
-                        history.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "name": tool_call.function.name,
-                            "content": search_result
-                        })
-                
-                # Step 3: Second call with tool results (Streaming)
-                second_response = client.chat.completions.create(
-                    model=os.getenv("OPENAI_MODEL", "grok-3-mini"),
-                    messages=history,
-                    stream=True,
-                )
-                
-                full_reply = ""
-                for chunk in second_response:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        text = chunk.choices[0].delta.content
-                        full_reply += text
-                        yield text
-                add_message_db(db, session_id, "assistant", full_reply)
+            full_reply = ""
+            for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    text = chunk.choices[0].delta.content
+                    full_reply += text
+                    yield text
+            add_message_db(db, session_id, "assistant", full_reply)
 
-            else:
-                # No tool calls, just stream normally
-                # Since we already ran a non-stream query, we can just yield the content, 
-                # but to be truly streaming, we should have used stream=True first and detected tools.
-                # OpenAI Python SDK can stream tool calls, but it's complex. Let's just yield the non-streamed text for simplicity when it's not a tool call.
-                # Actually, to preserve the streaming feel, let's yield it in chunks.
-                full_reply = message.content
-                chunk_size = 10
-                for i in range(0, len(full_reply), chunk_size):
-                    yield full_reply[i:i+chunk_size]
-                add_message_db(db, session_id, "assistant", full_reply)
 
         except Exception as e:
-            db.query(Message).filter(Message.session_id == session_id).order_by(Message.id.desc()).limit(1).delete()
+            last_msg = db.query(Message).filter(Message.session_id == session_id).order_by(Message.id.desc()).first()
+            if last_msg:
+                db.delete(last_msg)
             db.commit()
             yield f"Error: Unexpected error - {str(e)}"

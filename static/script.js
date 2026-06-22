@@ -4,7 +4,6 @@
 
 let sessionId = window.SESSION_ID || crypto.randomUUID();
 let isLoading = false;
-let authToken = localStorage.getItem('chat_token');
 
 // DOM References
 const chatWindow    = document.getElementById('chatWindow');
@@ -29,17 +28,8 @@ const modalOverlay  = document.getElementById('modalOverlay');
 const modalConfirm  = document.getElementById('modalConfirm');
 const modalCancel   = document.getElementById('modalCancel');
 const welcomeScreen = document.getElementById('welcomeScreen');
-
-// Auth DOM
-const authModal     = document.getElementById('authModal');
-const authUsername  = document.getElementById('authUsername');
-const authPassword  = document.getElementById('authPassword');
-const loginBtn      = document.getElementById('loginBtn');
-const registerBtn   = document.getElementById('registerBtn');
-const authError     = document.getElementById('authError');
-const loggedInUser  = document.getElementById('loggedInUser');
 const sessionList   = document.getElementById('sessionList');
-const logoutBtn     = document.getElementById('logoutBtn');
+
 
 const MAX_CHARS = 2000;
 
@@ -89,88 +79,14 @@ function hideWelcome() {
   if (welcomeScreen) welcomeScreen.style.display = 'none';
 }
 
-// ── Auth Flow ────────────────────────────────────────────────────────────
-
-function showAuthError(msg) {
-  authError.textContent = msg;
-  authError.style.display = 'block';
-}
-
-async function handleLogin() {
-  const username = authUsername.value.trim();
-  const password = authPassword.value;
-  if (!username || !password) return showAuthError("Enter username and password");
-
-  const formData = new URLSearchParams();
-  formData.append('username', username);
-  formData.append('password', password);
-
-  try {
-    const res = await fetch('/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Login failed");
-    
-    authToken = data.access_token;
-    localStorage.setItem('chat_token', authToken);
-    authModal.classList.remove('active');
-    initApp();
-  } catch (err) {
-    showAuthError(err.message);
-  }
-}
-
-async function handleRegister() {
-  const username = authUsername.value.trim();
-  const password = authPassword.value;
-  if (!username || !password) return showAuthError("Enter username and password");
-
-  try {
-    const res = await fetch('/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Registration failed");
-    
-    // Automatically log in after registration
-    await handleLogin();
-  } catch (err) {
-    showAuthError(err.message);
-  }
-}
-
-function handleLogout() {
-  localStorage.removeItem('chat_token');
-  authToken = null;
-  authModal.classList.add('active');
-  chatWindow.innerHTML = '';
-  sessionList.innerHTML = '';
-  sessionId = crypto.randomUUID();
-}
-
-loginBtn.addEventListener('click', handleLogin);
-registerBtn.addEventListener('click', handleRegister);
-logoutBtn.addEventListener('click', handleLogout);
-
 // ── Sidebar & Sessions ───────────────────────────────────────────────────
 
-async function fetchSessions() {
+
+function fetchSessions() {
   try {
-    const res = await fetch('/sessions', {
-      headers: { 'Authorization': `Bearer ${authToken}` }
-    });
-    if (!res.ok) {
-      if (res.status === 401) handleLogout();
-      return;
-    }
-    const sessions = await res.json();
+    const saved = localStorage.getItem('local_sessions');
+    const sessions = saved ? JSON.parse(saved) : [];
     sessionList.innerHTML = '';
-    
     sessions.forEach(s => {
       const div = document.createElement('div');
       div.className = 'session-item';
@@ -181,10 +97,21 @@ async function fetchSessions() {
   } catch(e) { console.error(e); }
 }
 
+function saveSessionLocal(id, title) {
+  try {
+    const saved = localStorage.getItem('local_sessions');
+    let sessions = saved ? JSON.parse(saved) : [];
+    if (!sessions.find(s => s.id === id)) {
+      sessions.unshift({id, title});
+      localStorage.setItem('local_sessions', JSON.stringify(sessions));
+      fetchSessions();
+    }
+  } catch(e) {}
+}
 async function loadSession(id) {
   try {
     const res = await fetch(`/history/${id}`, {
-      headers: { 'Authorization': `Bearer ${authToken}` }
+      
     });
     if (!res.ok) return;
     const data = await res.json();
@@ -317,8 +244,7 @@ async function sendMessage() {
     const response = await fetch('/chat', {
       method: 'POST',
       headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({ message: text, session_id: sessionId, persona: persona }),
     });
@@ -326,7 +252,7 @@ async function sendMessage() {
     removeTypingIndicator();
 
     if (!response.ok) {
-      if (response.status === 401) return handleLogout();
+      if (response.status === 401) return showError('Session expired, please refresh.');
       const errData = await response.json().catch(() => ({}));
       return showError(errData.detail || `Server error`);
     }
@@ -400,8 +326,7 @@ async function clearConversation() {
     await fetch('/clear', {
       method: 'POST',
       headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({ session_id: sessionId }),
     });
@@ -461,8 +386,7 @@ function downloadChat() {
 
 // ── File Upload ──────────────────────────────────────────────────────────
 async function uploadFile(file) {
-  if (!authToken) return showError('Please log in first.');
-  if (!file) return;
+    if (!file) return;
 
   const maxSize = 10 * 1024 * 1024; // 10MB
   if (file.size > maxSize) return showError('File too large. Max 10MB.');
@@ -487,14 +411,13 @@ async function uploadFile(file) {
 
     const res = await fetch('/upload', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${authToken}` },
       body: formData,
     });
 
     uploadProgressFill.style.width = '90%';
 
     if (!res.ok) {
-      if (res.status === 401) return handleLogout();
+      if (res.status === 401) return showError('Session expired, please refresh.');
       const data = await res.json().catch(() => ({}));
       throw new Error(data.detail || 'Upload failed');
     }
@@ -574,26 +497,10 @@ modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) c
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeClearModal(); });
 
 // ── Initialization ───────────────────────────────────────────────────────
+
 async function initApp() {
-  if (!authToken) {
-    authModal.classList.add('active');
-    return;
-  }
-  
-  // Verify token
-  try {
-    const res = await fetch('/me', { headers: { 'Authorization': `Bearer ${authToken}` } });
-    if (!res.ok) throw new Error("Invalid token");
-    const data = await res.json();
-    loggedInUser.textContent = `Logged in as: ${data.username}`;
-    authModal.classList.remove('active');
-    
-    // Load sidebar sessions
-    fetchSessions();
-    chatWindow.appendChild(createWelcomeScreen());
-  } catch(e) {
-    handleLogout();
-  }
+  fetchSessions();
+  chatWindow.appendChild(createWelcomeScreen());
 }
 
 window.addEventListener('DOMContentLoaded', () => {
